@@ -29,6 +29,8 @@
 #include <cmath>
 #include <random>
 #include <map>
+// 20.05.2025 added to support std::cout
+#include <iostream>
 
 /// file created for MOONIE 24.07.2024
 
