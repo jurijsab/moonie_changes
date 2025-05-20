@@ -39,77 +39,83 @@ namespace bias {
 /*
 Add Moonie.
 
-TO DO change the whole description
-
 This action can be used to create fictitious collective variables coupled to the real ones.
-Given \f$x_i\f$ the \f$i\f$th argument of this bias potential, potential
-and kinetic contributions are added to the energy of the system as
-\f[
-  V=\sum_i \frac{k_i}{2} (x_i-s_i)^2 + \sum_i \frac{\dot{s}_i^2}{2m_i}
-\f].
+The coupling by rigorous imposition of the holonomic constraints between fictitious collective 
+variables and the value of the collective variable, which depends on the real coordinates.
+The imposition of the holonomic constraint is achieved by SHAKE and RATTLE constraining algorithms. 
 
-The resulting potential is thus similar to a \ref RESTRAINT,
-but the restraint center moved with time following Hamiltonian
-dynamics with mass \f$m_i\f$.
+The main goal of this action is to output the quantities to compute the free-energy profile. 
+These quantities are Lagrangian multipliers (lambda and mu) for each collective variable. We obtain
+lambda from the SHAKE iteration procedure, while the mu multiplier is computed through the RATTLE
+iteration. In addition the programme also outputs the value of the det(Z)^(-0.5). The free-energy 
+profile can later be recovered through post-processing.
 
-This bias potential accepts thus vectorial keywords (one element per argument)
-to define the coupling constant (KAPPA) and a relaxation time \f$tau\f$ (TAU).
-The mass is them computed as \f$m=k(\frac{\tau}{2\pi})^2\f$.
+In addition, this subroutine also performs the time propagation of the fictitious collective variables
+and their corresponding velocities through the OVRVO algorithm, described in several sources, e.g.
+D. A. Sivak, J. D. Chodera, and G. E. Crooks, The Journal of Physical Chemistry B, vol. 118, no. 24, pp. 6466–6474, 2014.
+Furthermore, the fictitious collective variables can be thermostated at their own temperature (which should be higher than
+the physical one), similarly to the TAMD algorithm, published in:
+L. Maragliano and E. Vanden-Eijnden, Chemical Physics Letters, vol. 426, no. 1, pp. 168–175, 2006.  
 
-Notice that this action creates several components.
-The ones named XX_fict are the fictitious coordinates. It is possible
-to add further forces on them by means of other bias potential,
-e.g. to obtain an indirect \ref METAD as in \cite continua .
-Also notice that the velocities of the fictitious coordinates
-are reported (XX_vfict). However, printed velocities are the ones
-at the previous step.
+TO DO: replace this reference with the one of the paper on Moonie, once it is published.
+The whole procedure is an extension of Blue Moon formalism, presented in:
+G. Ciccotti and M. Ferrario, Computation, vol. 6, no. 1, 2018.
+Further details on the definition of the Z matrix can be found there.  
 
-It is also possible to provide a non-zero friction (one value per component).
-This is then used to implement a Langevin thermostat, so as to implement
-TAMD/dAFED method \cite Maragliano2006 \cite AbramsJ2008 . Notice that
-here a massive Langevin thermostat is used, whereas usually
-TAMD employs an overamped Langevin dynamics and dAFED
-a Gaussian thermostat.
+This action takes three compulsory parameters: "MASS", "TEMPERATURE" and "FRICTION".
+"MASS" is a vectorial keyword that takes the masses of all fictitious collective variables.
+"TEMPERATURE" is a scalar keyword, taking the fictitious temperature, at which the fictitious collective variables are thermostated.   
+"FRICTION" is a vectorial keyword that takes the frictions of all fictitious collective variables for their thermostating.
 
-\warning
-The bias potential is reported in the component bias.
-Notice that this bias potential, although formally compatible with
-replica exchange framework, probably does not work as expected in that case.
-Indeed, since fictitious coordinates are not swapped upon exchange,
-acceptace can be expected to be extremely low unless (by chance) two neighboring
-replicas have the fictitious variables located properly in space.
+In addition, the subroutine takes three optional parameters: "DO_ONLY_BLUE_MOON", "VALUES_COLVARS" and "PERIOD_COLVARS".
+"DO_ONLY_BLUE_MOON" is a boolean keyword that introduces the option of running the original Blue Moon. If DO_ONLY_BLUE_MOON=1 the time propagation 
+and thermostating of the fictitious collective variables is disabled. Instead the user MUST define the values, to which the collective variables
+are to relax. To this end, "VALUES_COLVARS" is a vectorial keyword, which takes the user-defined values of all collective variables.
+"PERIOD_COLVARS" is a vectorial keyword that takes the period of the collective variables, in case they are periodic. If this keyword is 0 for 
+any collective variable, the program will treat this collective variable as non-periodic.
 
 \warning
-\ref RESTART is not properly supported by this action. Indeed,
-at every start the position of the fictitious variable is reset to the value
-of the real variable, and its velocity is set to zero.
-This is not expected to introduce big errors, but certainly is
-introducing a small inconsistency between a single long run
-and many shorter runs.
+If DO_ONLY_BLUE_MOON=1 and the keyword "VALUES_COLVARS" is not defined, the program will assign the target values of collective variables to 0.         
 
-\par Examples
+\par Exemples
+This is an example of the input file for alanine dipeptide with periodic torsional angles:
+\plumedfile 
+TORSION ATOMS=5,7,9,15 LABEL=phi
+TORSION ATOMS=7,9,15,17 LABEL=psi
 
-The following input tells plumed to perform a metadynamics
-with an extended Lagrangian on two torsional angles.
-\plumedfile
-phi: TORSION ATOMS=5,7,9,15
-psi: TORSION ATOMS=7,9,15,17
-ex: EXTENDED_LAGRANGIAN ARG=phi,psi KAPPA=20,20.0 TAU=0.1,0.1
-METAD ARG=ex.phi_fict,ex.psi_fict PACE=100 SIGMA=0.35,0.35 HEIGHT=0.1
-# monitor the two variables
-PRINT STRIDE=10 ARG=phi,psi,ex.phi_fict,ex.psi_fict FILE=COLVAR
+MOONIE ARG=phi,psi MASS=100,100 TEMPERATURE=3500 FRICTION=1.0,1.0 PERIOD_COLVARS=2*3.14159265,2*3.14159265
+
+FLUSH STRIDE=100
+
+PRINT ARG=phi,psi STRIDE=1 FILE=COLVAR
+
+PRINT ...
+  ARG=*.*
+  STRIDE=10
+  FILE=COLVAR_ALL
+... PRINT
+
+ENDPLUMED
 \endplumedfile
 
-The following input tells plumed to perform a TAMD (or dAFED)
-calculation on two torsional angles, keeping the two variables
-at a fictitious temperature of 3000K with a Langevin thermostat
-with friction 10
-\plumedfile
-phi: TORSION ATOMS=5,7,9,15
-psi: TORSION ATOMS=7,9,15,17
-ex: EXTENDED_LAGRANGIAN ARG=phi,psi KAPPA=20,20.0 TAU=0.1,0.1 FRICTION=10,10 TEMP=3000
-# monitor the two variables
-PRINT STRIDE=10 ARG=phi,psi,ex.phi_fict,ex.psi_fict FILE=COLVAR
+This is an example of the input file for alanine dipeptide with periodic torsional angles for performing a pure Blue Moon simulation:
+\plumedfile 
+TORSION ATOMS=5,7,9,15 LABEL=phi
+TORSION ATOMS=7,9,15,17 LABEL=psi
+
+MOONIE ARG=phi,psi MASS=100,100 TEMPERATURE=3500 FRICTION=1.0,1.0 PERIOD_COLVARS=2*3.14159265,2*3.14159265 DO_ONLY_BLUE_MOON=1 VALUES_COLVARS=3.0,3.0
+
+FLUSH STRIDE=100
+
+PRINT ARG=phi,psi STRIDE=1 FILE=COLVAR
+
+PRINT ...
+  ARG=*.*
+  STRIDE=10
+  FILE=COLVAR_ALL
+... PRINT
+
+ENDPLUMED
 \endplumedfile
 
 */

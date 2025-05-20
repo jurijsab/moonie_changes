@@ -39,7 +39,84 @@ namespace bias {
 /*
 Add Moonie.
 
-TO DO add the whole description
+This action can be used to create fictitious collective variables coupled to the real ones.
+The coupling by rigorous imposition of the holonomic constraints between fictitious collective 
+variables and the value of the collective variable, which depends on the real coordinates.
+The imposition of the holonomic constraint is achieved by SHAKE and RATTLE constraining algorithms. 
+
+The main goal of this action is to output the quantities to compute the free-energy profile. 
+These quantities are Lagrangian multipliers (lambda and mu) for each collective variable. We obtain
+lambda from the SHAKE iteration procedure, while the mu multiplier is computed through the RATTLE
+iteration. In addition the programme also outputs the value of the det(Z)^(-0.5). The free-energy 
+profile can later be recovered through post-processing.
+
+In addition, this subroutine also performs the time propagation of the fictitious collective variables
+and their corresponding velocities through the OVRVO algorithm, described in several sources, e.g.
+D. A. Sivak, J. D. Chodera, and G. E. Crooks, The Journal of Physical Chemistry B, vol. 118, no. 24, pp. 6466–6474, 2014.
+Furthermore, the fictitious collective variables can be thermostated at their own temperature (which should be higher than
+the physical one), similarly to the TAMD algorithm, published in:
+L. Maragliano and E. Vanden-Eijnden, Chemical Physics Letters, vol. 426, no. 1, pp. 168–175, 2006.  
+
+TO DO: replace this reference with the one of the paper on Moonie, once it is published.
+The whole procedure is an extension of Blue Moon formalism, presented in:
+G. Ciccotti and M. Ferrario, Computation, vol. 6, no. 1, 2018.
+Further details on the definition of the Z matrix can be found there.  
+
+This action takes three compulsory parameters: "MASS", "TEMPERATURE" and "FRICTION".
+"MASS" is a vectorial keyword that takes the masses of all fictitious collective variables.
+"TEMPERATURE" is a scalar keyword, taking the fictitious temperature, at which the fictitious collective variables are thermostated.   
+"FRICTION" is a vectorial keyword that takes the frictions of all fictitious collective variables for their thermostating.
+
+In addition, the subroutine takes three optional parameters: "DO_ONLY_BLUE_MOON", "VALUES_COLVARS" and "PERIOD_COLVARS".
+"DO_ONLY_BLUE_MOON" is a boolean keyword that introduces the option of running the original Blue Moon. If DO_ONLY_BLUE_MOON=1 the time propagation 
+and thermostating of the fictitious collective variables is disabled. Instead the user MUST define the values, to which the collective variables
+are to relax. To this end, "VALUES_COLVARS" is a vectorial keyword, which takes the user-defined values of all collective variables.
+"PERIOD_COLVARS" is a vectorial keyword that takes the period of the collective variables, in case they are periodic. If this keyword is 0 for 
+any collective variable, the program will treat this collective variable as non-periodic.
+
+\warning
+If DO_ONLY_BLUE_MOON=1 and the keyword "VALUES_COLVARS" is not defined, the program will assign the target values of collective variables to 0.         
+
+\par Exemples
+This is an example of the input file for alanine dipeptide with periodic torsional angles:
+\plumedfile 
+TORSION ATOMS=5,7,9,15 LABEL=phi
+TORSION ATOMS=7,9,15,17 LABEL=psi
+
+MOONIE ARG=phi,psi MASS=100,100 TEMPERATURE=3500 FRICTION=1.0,1.0 PERIOD_COLVARS=2*3.14159265,2*3.14159265
+
+FLUSH STRIDE=100
+
+PRINT ARG=phi,psi STRIDE=1 FILE=COLVAR
+
+PRINT ...
+  ARG=*.*
+  STRIDE=10
+  FILE=COLVAR_ALL
+... PRINT
+
+ENDPLUMED
+\endplumedfile
+
+This is an example of the input file for alanine dipeptide with periodic torsional angles for performing a pure Blue Moon simulation:
+\plumedfile 
+TORSION ATOMS=5,7,9,15 LABEL=phi
+TORSION ATOMS=7,9,15,17 LABEL=psi
+
+MOONIE ARG=phi,psi MASS=100,100 TEMPERATURE=3500 FRICTION=1.0,1.0 PERIOD_COLVARS=2*3.14159265,2*3.14159265 DO_ONLY_BLUE_MOON=1 VALUES_COLVARS=3.0,3.0
+
+FLUSH STRIDE=100
+
+PRINT ARG=phi,psi STRIDE=1 FILE=COLVAR
+
+PRINT ...
+  ARG=*.*
+  STRIDE=10
+  FILE=COLVAR_ALL
+... PRINT
+
+ENDPLUMED
+\endplumedfile
 
 */
 //+ENDPLUMEDOC
