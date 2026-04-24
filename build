@@ -1,0 +1,14 @@
+#build
+#apptainer build Moonie.sif MoonieRecipe.def
+
+# run
+#apptainer exec --nv --bind $(pwd) Moonie.sif gmx_mpi mdrun -deffnm system
+
+
+# build docker
+#sudo docker build -t gromacs:moonie -f MoonieDocker .
+ 
+# conver to sif 
+apptainer build gromacs_moonie.sif docker-daemon://gromacs:moonie
+
+

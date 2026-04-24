@@ -1,0 +1,97 @@
+FROM rockylinux:9
+
+ENV PLUMED_VER=2.9.1 \
+    GROMACS_VER=2021.7 \
+    OPENMPI_VER=4.0.5 \
+    OPENMPI_MAJOR_VER=4.0 \
+    CUDA_VER=11-8 \
+    CUDA_HOME=/usr/local/cuda \
+    PATH=/opt/openmpi/bin:/opt/plumed/bin:/opt/gromacs/bin:$PATH \
+    LD_LIBRARY_PATH=/opt/openmpi/lib:/opt/plumed/lib:/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+
+RUN dnf -y update && \
+    dnf -y groupinstall "Development Tools" && \
+    dnf -y install epel-release && \
+    dnf -y install \
+        cmake \
+        git \
+        wget \
+        unzip \
+        make \
+        gcc \
+        gcc-c++ \
+        hwloc-devel \
+        libuuid-devel \
+        libxml2-devel \
+        tar \
+        python3 \
+        numactl-devel \
+        which && \
+    curl -sSL https://developer.download.nvidia.com/compute/cuda/repos/rhel9/x86_64/cuda-rhel9.repo -o /etc/yum.repos.d/cuda-rhel9.repo && \
+    dnf clean all && \
+    dnf makecache && \
+    dnf -y install cuda-toolkit-${CUDA_VER}
+
+# Build OpenMPI
+RUN cd /tmp && \
+    wget https://download.open-mpi.org/release/open-mpi/v${OPENMPI_MAJOR_VER}/openmpi-${OPENMPI_VER}.tar.gz && \
+    tar -xzf openmpi-${OPENMPI_VER}.tar.gz && \
+    cd openmpi-${OPENMPI_VER} && \
+    ./configure --prefix=/opt/openmpi --with-cuda=/usr/local/cuda && \
+    make -j$(nproc) && \
+    make install
+
+# Install PLUMED
+RUN cd /opt && \
+    wget https://github.com/plumed/plumed2/archive/refs/tags/v${PLUMED_VER}.tar.gz -O plumed-${PLUMED_VER}.tar.gz && \
+    tar -xzf plumed-${PLUMED_VER}.tar.gz && \
+    cd plumed2-${PLUMED_VER} && \
+    ./configure --prefix=/opt/plumed && \
+    make -j$(nproc) && \
+    make install
+
+# Apply GROMACS and patch
+RUN cd /opt && \
+    wget https://ftp.gromacs.org/gromacs/gromacs-${GROMACS_VER}.tar.gz && \
+    tar -xzf gromacs-${GROMACS_VER}.tar.gz && \
+    cd gromacs-${GROMACS_VER} && \
+    /opt/plumed/bin/plumed patch -e gromacs-${GROMACS_VER} -p
+
+# Clone patch repository
+RUN cd /opt && \
+    git clone https://github.com/jurijsab/moonie_changes
+
+# Patch GROMACS and PLUMED source files
+RUN cp /opt/moonie_changes/gromacs-${GROMACS_VER}/md.cpp           /opt/gromacs-${GROMACS_VER}/src/gromacs/mdrun/ && \
+    cp /opt/moonie_changes/plumed2-$PLUMED_VER/ActionAtomistic.cpp /opt/plumed2-$PLUMED_VER/src/core/ && \
+    cp /opt/moonie_changes/plumed2-$PLUMED_VER/ActionAtomistic.h   /opt/plumed2-$PLUMED_VER/src/core/ && \
+    cp /opt/moonie_changes/plumed2-$PLUMED_VER/Atoms.cpp           /opt/plumed2-$PLUMED_VER/src/core/ && \
+    cp /opt/moonie_changes/plumed2-$PLUMED_VER/Atoms.h             /opt/plumed2-$PLUMED_VER/src/core/ && \
+    cp /opt/moonie_changes/plumed2-$PLUMED_VER/MDAtoms.cpp         /opt/plumed2-$PLUMED_VER/src/core/ && \
+    cp /opt/moonie_changes/plumed2-$PLUMED_VER/MDAtoms.h           /opt/plumed2-$PLUMED_VER/src/core/ && \
+    cp /opt/moonie_changes/plumed2-$PLUMED_VER/PlumedMain.cpp      /opt/plumed2-$PLUMED_VER/src/core/ && \
+    cp /opt/moonie_changes/plumed2-${PLUMED_VER}/Moonie.cpp        /opt/plumed2-${PLUMED_VER}/src/bias/
+
+# Rebuild PLUMED
+RUN cd /opt/plumed2-${PLUMED_VER} && \
+    make clean && \
+    ./configure --prefix=/opt/plumed && \
+    make -j$(nproc) && \
+    make install
+
+# Rebuild GROMACS with CUDA toolchain but no GPU detection
+RUN cd /opt/gromacs-${GROMACS_VER} && \
+    mkdir build && cd build && \
+    cmake .. \
+        -DGMX_BUILD_OWN_FFTW=ON \
+        -DGMX_GPU=CUDA \
+        -DGMX_MPI=ON \
+        -DCMAKE_INSTALL_PREFIX=/opt/gromacs \
+        -DCUDA_ARCH=70 &&\
+    make -j$(nproc) && \
+    make install
+
+WORKDIR /data
+
+ENTRYPOINT ["/bin/bash"]
+

@@ -1,0 +1,123 @@
+Bootstrap: docker
+From: rockylinux:9
+
+%environment
+
+    export PATH=/opt/openmpi/bin:/opt/plumed/bin:/opt/gromacs/bin:$PATH
+    export LD_LIBRARY_PATH=/opt/openmpi/lib:$LD_LIBRARY_PATH
+    export CUDA_HOME=/usr/local/cuda
+    export PATH=$CUDA_HOME/bin:$PATH
+    export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH:/opt/plumed/lib
+
+%post
+
+    # select here the required versions.
+    # default is:
+    #export PLUMED_VER=2.9.1
+    #export GROMACS_VER=2021.7 
+    #export OPENMPI_VER=4.0.5
+    #export OPENMPI_MAJOR_VER=4.0   
+    #export CUDA_VER=11-8
+
+    export PLUMED_VER=2.9.1
+    export GROMACS_VER=2021.7 
+    export OPENMPI_VER=4.0.5
+    export OPENMPI_MAJOR_VER=4.0   
+    export CUDA_VER=11-8
+
+    dnf -y update && dnf -y groupinstall "Development Tools"
+    dnf -y install epel-release
+    dnf -y install \
+        cmake \
+        git \
+        wget \
+        unzip \
+        make \
+        gcc \
+        gcc-c++ \
+        hwloc-devel \
+        libuuid-devel \
+        libxml2-devel \
+        tar \
+        python3 \
+        numactl-devel
+
+    ## Install CUDA Toolkit
+    curl -sSL https://developer.download.nvidia.com/compute/cuda/repos/rhel9/x86_64/cuda-rhel9.repo -o /etc/yum.repos.d/cuda-rhel9.repo
+    dnf -y clean all
+    dnf -y makecache
+    dnf -y install cuda-toolkit-$CUDA_VER
+
+    ## Install OpenMPI 
+    cd /tmp
+    wget https://download.open-mpi.org/release/open-mpi/v$OPENMPI_MAJOR_VER/openmpi-$OPENMPI_VER.tar.gz
+    tar -xzf openmpi-$OPENMPI_VER.tar.gz
+    cd openmpi-$OPENMPI_VER
+    ./configure --prefix=/opt/openmpi --with-cuda
+    make -j$(nproc)
+    make install
+
+    export PATH=/opt/openmpi/bin:$PATH
+    export LD_LIBRARY_PATH=/opt/openmpi/lib:$LD_LIBRARY_PATH
+
+    ## Install 
+    cd /opt
+    wget https://github.com/plumed/plumed2/archive/refs/tags/v$PLUMED_VER.tar.gz -O plumed-$PLUMED_VER.tar.gz
+    tar -xzf plumed-$PLUMED_VER.tar.gz
+    cd plumed2-$PLUMED_VER
+    ./configure --prefix=/opt/plumed
+    make -j$(nproc)
+    make install
+    
+    # make the libs available
+    export LD_LIBRARY_PATH=/opt/plumed/lib
+    
+
+    ## Apply GROMACS and patch it
+    cd /opt
+    wget https://ftp.gromacs.org/gromacs/gromacs-$GROMACS_VER.tar.gz
+    tar -xzf gromacs-$GROMACS_VER.tar.gz
+    cd gromacs-$GROMACS_VER
+    /opt/plumed/bin/plumed patch -e gromacs-$GROMACS_VER -p
+
+    ## Clone patch repo
+    cd /opt
+    git clone https://github.com/jurijsab/moonie_changes
+
+    ## Apply patch: GROMACS
+    cp /opt/moonie_changes/gromacs-$GROMACS_VER/md.cpp /opt/gromacs-$GROMACS_VER/src/gromacs/mdrun/
+
+    ## Apply patch: PLUMED
+    cp /opt/moonie_changes/plumed2-$PLUMED_VER/ActionAtomistic.cpp /opt/plumed2-$PLUMED_VER/src/core/
+    cp /opt/moonie_changes/plumed2-$PLUMED_VER/ActionAtomistic.h   /opt/plumed2-$PLUMED_VER/src/core/
+    cp /opt/moonie_changes/plumed2-$PLUMED_VER/Atoms.cpp           /opt/plumed2-$PLUMED_VER/src/core/
+    cp /opt/moonie_changes/plumed2-$PLUMED_VER/Atoms.h             /opt/plumed2-$PLUMED_VER/src/core/
+    cp /opt/moonie_changes/plumed2-$PLUMED_VER/MDAtoms.cpp         /opt/plumed2-$PLUMED_VER/src/core/
+    cp /opt/moonie_changes/plumed2-$PLUMED_VER/MDAtoms.h           /opt/plumed2-$PLUMED_VER/src/core/
+    cp /opt/moonie_changes/plumed2-$PLUMED_VER/PlumedMain.cpp      /opt/plumed2-$PLUMED_VER/src/core/
+    cp /opt/moonie_changes/plumed2-$PLUMED_VER/Moonie.cpp          /opt/plumed2-$PLUMED_VER/src/bias/
+
+    ## Rebuild PLUMED
+    cd /opt/plumed2-$PLUMED_VER
+    make clean
+    ./configure --prefix=/opt/plumed
+    make -j$(nproc)
+    make install
+
+    ## Rebuild GROMACS
+    cd /opt/gromacs-$GROMACS_VER
+    mkdir build && cd build
+    cmake .. -DGMX_BUILD_OWN_FFTW=ON -DGMX_GPU=CUDA -DGMX_MPI=ON \
+        -DCMAKE_C_COMPILER=mpicc -DCMAKE_CXX_COMPILER=mpicxx \
+        -DCMAKE_INSTALL_PREFIX=/opt/gromacs
+    make -j$(nproc)
+    make install
+
+%labels
+    Author Sergio Decherchi
+    Version v1.0
+    Description "GROMACS 2021.7 with PLUMED 2.9.1, patched for CUDA and MPI with Moonie Support"
+
+%runscript
+    echo "Welcome to MOONIE for GROMACS+PLUMED container"
+    exec bash
